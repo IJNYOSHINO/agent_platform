@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # AI Agent Plugin Platform
 
 ## Overview
@@ -62,3 +63,7 @@ uvicorn main:app --reload --port 8000
 ## API Docs
 
 Open `/docs` after the server starts.
+=======
+# agent_platform
+AI Agent Plugin Platform
+>>>>>>> 52f4c948938234e0abd67e25fe6c59d604fd4c77
