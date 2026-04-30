@@ -62,6 +62,3 @@ uvicorn main:app --reload --port 8000
 ## API Docs
 
 Open `/docs` after the server starts.
-=======
-# agent_platform
-AI Agent Plugin Platform
