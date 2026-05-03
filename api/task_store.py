@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
-from sqlalchemy import select
+from sqlalchemy import select,text
 
 from api.schemas import TaskResponse, TaskStatus
 from core.database import SessionLocal
@@ -140,8 +140,31 @@ class TaskStore:
                 if record is None:
                     return False
                 db.delete(record)
+                self._delete_checkpoint_sync(db, task_id)
                 db.commit()
                 return True
+
+    def _delete_checkpoint_sync(self, db, task_id: str) -> None:
+        """同步删除 PostgreSQL 中的 checkpoint 数据"""
+        from config.settings import get_settings
+        settings = get_settings()
+
+        if settings.env != "prod":
+            return
+
+        try:
+            # db 是同步 Session，直接执行
+            db.execute(
+                text("DELETE FROM checkpoint_writes WHERE thread_id = :thread_id"),
+                {"thread_id": task_id}
+            )
+            db.execute(
+                text("DELETE FROM checkpoints WHERE thread_id = :thread_id"),
+                {"thread_id": task_id}
+            )
+        except Exception as e:
+            # 表可能还不存在，忽略错误
+            pass
 
     async def recover_running_tasks(self) -> int:
         async with self._lock:
