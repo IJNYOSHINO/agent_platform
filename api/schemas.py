@@ -3,12 +3,22 @@ API 请求/响应数据模型（Pydantic v2）
 """
 from __future__ import annotations
 
+import base64
+import re
 from enum import Enum
 from typing import Any, Literal
 
-import base64
-import re
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+# 从验证模块导入（需要新建）
+from api.media_validator import (
+    SUPPORTED_IMAGE_MIMES,
+    SUPPORTED_AUDIO_MIMES,
+    SUPPORTED_PDF_MIMES,
+    MediaValidator,
+    MediaSanitizer,
+    MediaConverter,
+)
 
 
 class TaskStatus(str, Enum):
@@ -86,14 +96,11 @@ class ExecutionPlan(BaseModel):
     def steps_must_not_be_empty(cls, v: list[PlanStep]) -> list[PlanStep]:
         if not v:
             raise ValueError("Plan must contain at least one step.")
-        # 校验依赖引用合法性
         ids = {s.id for s in v}
         for step in v:
             for dep in step.depends_on:
                 if dep not in ids:
-                    raise ValueError(
-                        f"Step '{step.id}' depends on unknown step '{dep}'."
-                    )
+                    raise ValueError(f"Step '{step.id}' depends on unknown step '{dep}'.")
         return v
 
 
@@ -108,6 +115,7 @@ class StepResult(BaseModel):
 
 
 class MediaItem(BaseModel):
+    """媒体项（纯数据模型）"""
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["image", "audio", "pdf"] = Field(..., description="媒体类型")
@@ -119,38 +127,62 @@ class MediaItem(BaseModel):
 
     @field_validator("data")
     @classmethod
-    def data_must_be_base64(cls, v: str) -> str:
-        try:
-            base64.b64decode(v, validate=True)
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError("Media data must be valid base64.") from exc
+    def validate_and_sanitize(cls, v: str, info) -> str:
+        """验证并处理媒体文件"""
+        media_type = info.data.get("type")
+
+        # 1. 验证 Base64 格式
+        file_bytes = MediaValidator.validate_base64(v)
+
+        # 2. 验证文件大小
+        MediaValidator.validate_file_size(file_bytes)
+
+        # 3. 检测真实 MIME
+        real_mime = MediaValidator.detect_mime(file_bytes)
+
+        # 4. 根据类型处理
+        if media_type == "image":
+            # 图片：无害化处理
+            return MediaSanitizer.sanitize_image(file_bytes)
+        elif media_type == "audio":
+            # 音频：验证格式
+            if real_mime:
+                MediaValidator.validate_mime("audio", real_mime)
+            return base64.b64encode(file_bytes).decode()
+        elif media_type == "pdf":
+            # PDF：验证格式
+            MediaValidator.validate_pdf(file_bytes)
+            if real_mime:
+                MediaValidator.validate_mime("pdf", real_mime)
+            return base64.b64encode(file_bytes).decode()
+
         return v
 
     @field_validator("media_type")
     @classmethod
-    def media_type_must_look_like_mime(cls, v: str) -> str:
+    def validate_media_type(cls, v: str, info) -> str:
+        """验证 media_type 是否与 type 匹配"""
         if "/" not in v:
             raise ValueError("media_type must be a MIME type.")
+
+        media_type = info.data.get("type")
+
+        if media_type == "image" and v not in SUPPORTED_IMAGE_MIMES:
+            raise ValueError(f"Unsupported image MIME: {v}")
+        if media_type == "audio" and v not in SUPPORTED_AUDIO_MIMES:
+            raise ValueError(f"Unsupported audio MIME: {v}")
+        if media_type == "pdf" and v not in SUPPORTED_PDF_MIMES:
+            raise ValueError(f"Unsupported PDF MIME: {v}")
+
         return v
 
     def to_message_part(self) -> dict[str, Any]:
+        """转换为 LangChain 消息格式"""
         if self.type == "image":
-            return {
-                "type": "image_url",
-                "image_url": {"url": f"data:{self.media_type};base64,{self.data}"},
-            }
+            return MediaConverter.to_langchain_image(self.data)
         if self.type == "audio":
-            return {
-                "type": "input_audio",
-                "input_audio": {
-                    "data": self.data,
-                    "format": self.media_type.split("/")[-1],
-                },
-            }
-        return {
-            "type": "text",
-            "text": f"[PDF Document, base64 encoded]: {self.data[:200]}...",
-        }
+            return MediaConverter.to_langchain_audio(self.data, self.media_type)
+        return MediaConverter.to_langchain_pdf(self.data)
 
 
 class ExecuteRequest(BaseModel):
