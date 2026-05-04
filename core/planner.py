@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from api.schemas import ExecutionPlan, PlanStep
+
 from config.settings import get_settings
 from core.prompt_store import render_prompt
 
@@ -41,7 +41,8 @@ class Planner:
         memory_context: str = "",
         media_content: list[dict[str, Any]] | None = None,
         history: list[BaseMessage] | None = None,
-    ) -> ExecutionPlan:
+    ) -> "ExecutionPlan":
+        from api.schemas import ExecutionPlan, PlanStep
         system_prompt = render_prompt(
             "planner_system",
             tools_desc=self._build_tools_desc(tools_info),

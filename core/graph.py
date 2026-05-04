@@ -11,7 +11,6 @@ from langgraph.graph import END, StateGraph
 from api.schemas import ExecutionPlan, PlanStep
 from config.settings import get_settings
 from core.executor import Executor
-from core.planner import Planner
 from core.registry import get_registry
 from memory.long_term import get_long_term_memory
 
@@ -146,6 +145,7 @@ async def _store_long_term_summary(state: AgentState, owner_id: int | None = Non
 
 
 async def _plan_node(state: AgentState) -> AgentState:
+    from core.planner import Planner
     cfg = get_settings()
     registry = get_registry()
     planner = Planner()

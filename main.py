@@ -47,6 +47,14 @@ async def lifespan(app: FastAPI):
     worker_task = asyncio.create_task(get_task_runner().run_forever(stop_event))
     logger.info("Task worker started.")
 
+    # try:
+    #     from memory.short_term import get_short_term_memory
+    #     short_term = await get_short_term_memory()
+    #     await short_term.warmup()
+    #     logger.info("Short-term memory warmed up")
+    # except Exception as e:
+    #     logger.warning("Failed to warmup short-term memory: %s", e)
+
     try:
         yield
     finally:
@@ -56,6 +64,14 @@ async def lifespan(app: FastAPI):
             await worker_task
         except asyncio.CancelledError:
             pass
+
+        try:
+            from memory.short_term import close_short_term_memory
+            await close_short_term_memory()
+            logger.info("Short-term memory closed.")
+        except Exception as e:
+            logger.warning("Failed to close short-term memory: %s", e)
+
         logger.info("Shutting down.")
 
 
@@ -120,7 +136,6 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
 
 if __name__ == "__main__":
     import uvicorn
