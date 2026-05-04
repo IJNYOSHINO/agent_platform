@@ -98,18 +98,18 @@ class TaskStore:
                 db.commit()
 
     async def claim_next_pending(self) -> PendingTaskPayload | None:
-        async with self._lock:
-            with SessionLocal() as db:
+        with SessionLocal() as db:
+            with db.begin():
                 record = db.scalar(
                     select(TaskRecord)
                     .where(TaskRecord.status == TaskStatus.PENDING.value)
                     .order_by(TaskRecord.created_at.asc())
+                    .with_for_update(skip_locked=True)
                 )
                 if record is None:
                     return None
                 record.status = TaskStatus.RUNNING.value
                 record.updated_at = datetime.now(timezone.utc)
-                db.commit()
                 return {
                     "task_id": record.task_id,
                     "owner_id": record.owner_id,
