@@ -131,7 +131,8 @@ async def _store_long_term_summary(state: AgentState, owner_id: int | None = Non
 
     transcript = "\n".join(part for part in [f"用户: {instruction}", f"助手: {last_result}"] if part.strip())
     try:
-        await get_long_term_memory().store(
+        memory = await get_long_term_memory()
+        await memory.store(
             transcript,
             metadata={
                 "source": "stable_user_memory",
@@ -154,7 +155,8 @@ async def _plan_node(state: AgentState) -> AgentState:
 
     memory_context = ""
     if _should_use_long_term_memory(instruction):
-        snippets = await get_long_term_memory().retrieve(
+        memory = await get_long_term_memory()
+        snippets = await memory.retrieve(
             instruction,
             top_k=cfg.memory_top_k,
             owner_id=state.get("owner_id"),

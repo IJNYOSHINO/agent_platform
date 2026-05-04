@@ -4,6 +4,7 @@ from collections.abc import Generator
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from config.settings import get_settings
@@ -13,6 +14,7 @@ class Base(DeclarativeBase):
     pass
 
 
+# ========== 同步引擎（用于迁移、任务存储等） ==========
 def _create_engine():
     cfg = get_settings()
     return create_engine(
@@ -23,10 +25,31 @@ def _create_engine():
     )
 
 
+# ========== 异步引擎（用于长期记忆等 IO 密集型操作） ==========
+def _create_async_engine():
+    cfg = get_settings()
+    # 将 postgresql:// 转换为 postgresql+asyncpg://
+    async_url = cfg.database_url.replace("postgresql://", "postgresql+asyncpg://")
+    return create_async_engine(
+        async_url,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        echo=False,
+    )
+
+
 engine = _create_engine()
+async_engine = _create_async_engine()
+
+# 同步 Session（用于大多数操作）
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
+# 异步 Session（用于长期记忆）
+async_session_factory = async_sessionmaker(async_engine, expire_on_commit=False)
 
+
+# ========== 迁移（保持同步） ==========
 _SCHEMA_MIGRATIONS: list[tuple[str, tuple[str, ...]]] = [
     (
         "2026_04_30_01_task_payload_columns",
@@ -47,6 +70,16 @@ _SCHEMA_MIGRATIONS: list[tuple[str, tuple[str, ...]]] = [
         (
             "ALTER TABLE IF EXISTS long_term_memory ADD COLUMN IF NOT EXISTS owner_id INTEGER",
             "CREATE INDEX IF NOT EXISTS ix_long_term_memory_owner_id ON long_term_memory (owner_id)",
+        ),
+    ),
+    # 新增：为长期记忆表添加 faiss_id 字段和状态字段
+    (
+        "2026_05_04_01_long_term_memory_faiss_id",
+        (
+            "ALTER TABLE IF EXISTS long_term_memory ADD COLUMN IF NOT EXISTS faiss_id BIGINT",
+            "ALTER TABLE IF EXISTS long_term_memory ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'ready'",
+            "CREATE INDEX IF NOT EXISTS ix_long_term_memory_faiss_id ON long_term_memory (faiss_id)",
+            "CREATE INDEX IF NOT EXISTS ix_long_term_memory_status ON long_term_memory (status)",
         ),
     ),
 ]
